@@ -10,19 +10,19 @@ import org.eclipse.jgit.api.BlameCommand;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.blame.BlameResult;
+import org.eclipse.jgit.lib.Config;
 import org.eclipse.jgit.lib.ObjectId;
-import org.eclipse.jgit.revwalk.RevCommit;
-import org.eclipse.jgit.revwalk.RevWalk;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.util.Scanner;
 
 
 /**
@@ -30,44 +30,39 @@ import java.nio.file.Paths;
  */
 public class Main {
 
-    private static String user;
-    private static String password;
 
     public static void main(String[] args) throws IOException, GitAPIException, JSONException {
-        String repo = args[0];
-        int num = Integer.parseInt(args[1]);
-        user = getUserName();
-        password = getUserPassword();
+        String repositoryName = args[0];
+        int ticketNumber = Integer.parseInt(args[1]);
+
+        Git git = Git.open(new File(System.getProperty("user.dir") + "/.git"));
+        Config config = git.getRepository().getConfig();
+        String userName = config.getString("user", null, "name");
+        System.out.println("Enter password: ");
+        Scanner in = new Scanner(System.in);
+        String password = in.nextLine();
+
         GitHubClient client = new GitHubClient();
-        client.setCredentials(user, password);
+        client.setCredentials(userName, password);
 
         IssueService service = new IssueService(client);
-        Issue issue = service.getIssue(user, repo, num);
+        Issue issue = service.getIssue(userName, repositoryName, ticketNumber);
         String issueBody = issue.getBody();
 
-
         TraceInfo traceInfo = getTraceInfo(issueBody);
-        Git git = Git.open(new File(System.getProperty("user.dir") + "/.git"));
-//        Config config = git.getRepository().getConfig();
-//        System.out.println(config.getString("user", null, "name"));
 
         BlameCommand cmd = new BlameCommand(git.getRepository());
         ObjectId commitID = git.getRepository().resolve("HEAD");
-        RevCommit revCommit = new RevWalk(git.getRepository()).parseCommit(commitID);
         cmd.setStartCommit(commitID);
-        cmd.setFilePath("src/" + traceInfo.getClassName() + ".java");
+        cmd.setFilePath("src/" + traceInfo.getFileName());
         BlameResult blameResult = cmd.call();
 
-//        System.out.println(blameResult);
         String blamedUserEmail = blameResult.getSourceAuthor(traceInfo.getLineNumber()).getEmailAddress();
-//        UserService userService = new UserService();
         String blamedUserLogin = getUserLogin(blamedUserEmail);
-//        System.out.println(blamedUserEmail);
-//        System.out.println(blamedUserLogin);
 
         User blamedUser = new User();
         issue.setAssignee(blamedUser.setLogin(blamedUserLogin));
-        service.editIssue(user, repo, issue);
+        service.editIssue(userName, repositoryName, issue);
     }
 
     private static String getUserLogin(String blamedUserEmail) throws IOException, JSONException {
@@ -77,8 +72,6 @@ public class Main {
 
         URL obj = new URL(url);
         HttpURLConnection con = (HttpURLConnection) obj.openConnection();
-
-        // optional default is GET
         con.setRequestMethod("GET");
         int responseCode = con.getResponseCode();
 
@@ -99,40 +92,7 @@ public class Main {
     }
 
 
-    private static String readFromFile(String field){
-        Path path = Paths.get("./config.txt");
-        String result = "";
-        try (BufferedReader reader = Files.newBufferedReader(path)){
-            while (!result.startsWith(field)){
-                result = reader.readLine();
-            }
-            result = result.substring(field.length() + 1);
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return result;
-    }
-
-    private static String getUserName(){
-        return readFromFile("user");
-    }
-
-    private static String getUserPassword(){
-        return readFromFile("password");
-    }
-
     private static TraceInfo getTraceInfo(String issueBody){
-        String levels [] = issueBody.split("\n");
-        String lineNumber = "";
-        for (int i = levels[1].length() - 3; i>=0; i--){
-            if (levels[1].charAt(i)==':'){
-                break;
-            }
-            lineNumber = levels[1].charAt(i) + lineNumber;
-        }
-        int lineNum = Integer.parseInt(lineNumber);
         NStackTrace stackTrace = null;
         try {
              stackTrace = StackTraceParser.parse(issueBody);
@@ -140,8 +100,10 @@ public class Main {
             System.out.println("Ticket corrupted!");
         }
         NFrame topFrame = stackTrace.getTrace().getFrames().get(0);
-        System.out.println(topFrame.getLocation());
-        return new TraceInfo(topFrame.getClassName(), topFrame.getMethodName(), lineNum);
+        int size = topFrame.getLocation().length();
+        String locationInfo[] = topFrame.getLocation().substring(1,size -1).split(":");
+        return new TraceInfo(topFrame.getClassName(), topFrame.getMethodName(),
+                locationInfo[0], Integer.parseInt(locationInfo[1]));
     }
 
 }
