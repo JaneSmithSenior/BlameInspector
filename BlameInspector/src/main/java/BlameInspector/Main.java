@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.Date;
 import java.util.NoSuchElementException;
 import java.util.TreeMap;
 
@@ -70,6 +71,12 @@ public class Main {
 
         RevWalk walk = new RevWalk(git.getRepository());
         RevCommit commit = walk.parseCommit(commitID);
+        for (RevCommit com: walk){
+            Date commitTime = new Date(com.getCommitTime() * 1000L);
+            if (commitTime.before(issue.getUpdatedAt())){
+                commit = com;
+            }
+        }
         RevTree tree = commit.getTree();
 
         TreeWalk treeWalk = new TreeWalk(git.getRepository());
