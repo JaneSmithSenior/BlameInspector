@@ -12,6 +12,10 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.blame.BlameResult;
 import org.eclipse.jgit.lib.Config;
 import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.revwalk.RevCommit;
+import org.eclipse.jgit.revwalk.RevTree;
+import org.eclipse.jgit.revwalk.RevWalk;
+import org.eclipse.jgit.treewalk.TreeWalk;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -22,7 +26,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.Scanner;
+import java.util.NoSuchElementException;
+import java.util.TreeMap;
 
 
 /**
@@ -30,17 +35,28 @@ import java.util.Scanner;
  */
 public class Main {
 
+    private static TreeMap<String, String> filesInRepo;
+
 
     public static void main(String[] args) throws IOException, GitAPIException, JSONException {
-        String repositoryName = args[0];
-        int ticketNumber = Integer.parseInt(args[1]);
+        String repositoryName;
+        int ticketNumber;
+        String password;
+
+        try {
+            repositoryName = args[0];
+            ticketNumber = Integer.parseInt(args[1]);
+            password = args[2];
+        }catch (ArrayIndexOutOfBoundsException e){
+            System.out.println("Not enough arguments. Try again.");
+            return;
+        }
+
+        filesInRepo = new TreeMap<>();
 
         Git git = Git.open(new File(System.getProperty("user.dir") + "/.git"));
         Config config = git.getRepository().getConfig();
         String userName = config.getString("user", null, "name");
-        System.out.println("Enter password: ");
-        Scanner in = new Scanner(System.in);
-        String password = in.nextLine();
 
         GitHubClient client = new GitHubClient();
         client.setCredentials(userName, password);
@@ -49,12 +65,29 @@ public class Main {
         Issue issue = service.getIssue(userName, repositoryName, ticketNumber);
         String issueBody = issue.getBody();
 
-        TraceInfo traceInfo = getTraceInfo(issueBody);
-
         BlameCommand cmd = new BlameCommand(git.getRepository());
         ObjectId commitID = git.getRepository().resolve("HEAD");
+
+        RevWalk walk = new RevWalk(git.getRepository());
+        RevCommit commit = walk.parseCommit(commitID);
+        RevTree tree = commit.getTree();
+
+        TreeWalk treeWalk = new TreeWalk(git.getRepository());
+        treeWalk.addTree(tree);
+        treeWalk.setRecursive(true);
+        while (treeWalk.next()) {
+            filesInRepo.put(treeWalk.getNameString(), treeWalk.getPathString());
+        }
+        TraceInfo traceInfo;
+        try {
+            traceInfo  = getTraceInfo(issueBody);
+        }catch (TicketCorruptedException e){
+            System.out.println("Sorry, current ticket is corrupted!");
+            return;
+        }
+
         cmd.setStartCommit(commitID);
-        cmd.setFilePath("src/" + traceInfo.getFileName());
+        cmd.setFilePath(filesInRepo.get(traceInfo.getFileName()));
         BlameResult blameResult = cmd.call();
 
         String blamedUserEmail = blameResult.getSourceAuthor(traceInfo.getLineNumber()).getEmailAddress();
@@ -92,18 +125,25 @@ public class Main {
     }
 
 
-    private static TraceInfo getTraceInfo(String issueBody){
-        NStackTrace stackTrace = null;
+    private static TraceInfo getTraceInfo(String issueBody) throws TicketCorruptedException {
+        NStackTrace stackTrace;
         try {
              stackTrace = StackTraceParser.parse(issueBody);
-        }catch (RecognitionException e){
-            System.out.println("Ticket corrupted!");
+
+        }catch (NoSuchElementException | RecognitionException e){
+             throw new TicketCorruptedException("StackTrace corrupted!");
         }
-        NFrame topFrame = stackTrace.getTrace().getFrames().get(0);
-        int size = topFrame.getLocation().length();
-        String locationInfo[] = topFrame.getLocation().substring(1,size -1).split(":");
-        return new TraceInfo(topFrame.getClassName(), topFrame.getMethodName(),
-                locationInfo[0], Integer.parseInt(locationInfo[1]));
+        String locationInfo[];
+        for (int i = 0 ;i < stackTrace.getTrace().getFrames().size(); i++){
+            NFrame currentFrame = stackTrace.getTrace().getFrames().get(i);
+            int size = currentFrame.getLocation().length();
+            locationInfo = currentFrame.getLocation().substring(1,size -1).split(":");
+            if (filesInRepo.containsKey(locationInfo[0])){
+                return new TraceInfo(currentFrame.getClassName(), currentFrame.getMethodName(),
+                        locationInfo[0], Integer.parseInt(locationInfo[1]));
+            }
+        }
+        throw new TicketCorruptedException("No entry of exception found in current repository.");
     }
 
 }
