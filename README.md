@@ -1,4 +1,4 @@
-# BlameInsepctor
+# BlameInspector
 
 To build:
 
