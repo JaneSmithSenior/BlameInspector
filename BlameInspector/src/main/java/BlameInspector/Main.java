@@ -26,9 +26,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.Date;
+import java.util.HashMap;
 import java.util.NoSuchElementException;
-import java.util.TreeMap;
 
 
 /**
@@ -36,7 +35,7 @@ import java.util.TreeMap;
  */
 public class Main {
 
-    private static TreeMap<String, String> filesInRepo;
+    private static HashMap<String, String> filesInRepo;
 
 
     public static void main(String[] args) throws IOException, GitAPIException, JSONException {
@@ -53,7 +52,7 @@ public class Main {
             return;
         }
 
-        filesInRepo = new TreeMap<>();
+        filesInRepo = new HashMap<>();
 
         Git git = Git.open(new File(System.getProperty("user.dir") + "/.git"));
         Config config = git.getRepository().getConfig();
@@ -71,12 +70,13 @@ public class Main {
 
         RevWalk walk = new RevWalk(git.getRepository());
         RevCommit commit = walk.parseCommit(commitID);
-        for (RevCommit com: walk){
-            Date commitTime = new Date(com.getCommitTime() * 1000L);
-            if (commitTime.before(issue.getUpdatedAt())){
-                commit = com;
-            }
-        }
+//        for (RevCommit com: walk){
+//            Date commitTime = new Date(com.getCommitTime() * 1000L);
+//            System.out.println(com.getCommitTime() * 1000L + " " + issue.getUpdatedAt());
+//            if (commitTime.before(issue.getUpdatedAt())){
+//                commit = com;
+//            }
+//        }
         RevTree tree = commit.getTree();
 
         TreeWalk treeWalk = new TreeWalk(git.getRepository());
