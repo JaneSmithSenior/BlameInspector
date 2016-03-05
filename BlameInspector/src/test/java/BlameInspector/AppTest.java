@@ -17,7 +17,7 @@ import java.io.PrintStream;
 public class AppTest
         extends TestCase
 {
-    private String password = "LeisureWork1828";
+    private String password = "";
     private String repoName = "BlameWhoTest";
     private String userName = "JackSmithJunior";
     private final ByteArrayOutputStream outContent = new ByteArrayOutputStream();
